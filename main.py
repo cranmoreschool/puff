@@ -237,25 +237,26 @@ index_html = """
             type: 'doughnut',
             data: {
                 datasets: [{
-                    data: [0, 100],
+                    data: [33, 67],  // Start with 33% filled (good range)
                     backgroundColor: [initialGradient, '#E5E7EB'],
                     circumference: 180,
                     rotation: 270,
                     borderWidth: 0,
-                    borderRadius: 10
+                    borderRadius: 15,
+                    spacing: 2
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '75%',
+                cutout: '70%',  // Slightly thicker gauge
                 plugins: {
                     legend: { display: false },
                     tooltip: { enabled: false }
                 },
                 animation: {
-                    duration: 1000,
-                    easing: 'easeOutQuart'
+                    duration: 1500,  // Slower animation
+                    easing: 'easeInOutQuart'  // Smoother animation
                 }
             }
         });
@@ -286,14 +287,24 @@ index_html = """
                     const pm25 = data.pm25;
                     let percentage;
                     
-                    if (pm25 <= 50) {
-                        // Linear scaling for lower values (0-50)
-                        percentage = (pm25 / 50) * 50;
+                    // Linear scaling with adjusted ranges for better visibility
+                    if (pm25 <= 12) {
+                        // Good range (0-12): Scale to 0-33%
+                        percentage = (pm25 / 12) * 33;
+                    } else if (pm25 <= 35) {
+                        // Moderate range (12-35): Scale to 33-66%
+                        percentage = 33 + ((pm25 - 12) / (35 - 12)) * 33;
                     } else {
-                        // Logarithmic scaling for higher values (50+)
-                        percentage = 50 + (Math.log(pm25 - 49) / Math.log(51)) * 50;
+                        // Poor range (35+): Scale to 66-100%
+                        // Use logarithmic scaling for high values
+                        const maxPM25 = 150; // Maximum PM2.5 value for scaling
+                        const remaining = Math.min(pm25, maxPM25) - 35;
+                        const logScale = Math.log(remaining + 1) / Math.log(maxPM25 - 35 + 1);
+                        percentage = 66 + (logScale * 34); // 34 to ensure we don't exceed 100
                     }
-                    percentage = Math.min(percentage, 100);
+                    
+                    // Ensure percentage is between 0 and 100
+                    percentage = Math.max(0, Math.min(100, percentage));
                     
                     // Update chart data
                     gaugeChart.data.datasets[0].data = [percentage, 100 - percentage];
@@ -968,11 +979,11 @@ def test_microphone(device_index):
         recognizer = sr.Recognizer()
         with sr.Microphone(device_index=device_index) as source:
             logger.info(f"Testing microphone at index {device_index}")
-            # Try to get audio from the microphone
-            audio = recognizer.listen(source, timeout=1, phrase_time_limit=1)
+            # Just try to initialize the microphone
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
             return True
     except Exception as e:
-        logger.error(f"Microphone test failed for index {device_index}: {str(e)}")
+        logger.info(f"Device {device_index} not available: {str(e)}")
         return False
 
 def find_working_usb_microphone():
@@ -982,26 +993,31 @@ def find_working_usb_microphone():
         mics = sr.Microphone.list_microphone_names()
         logger.info(f"Found {len(mics)} audio devices:")
         
-        # First try devices that are explicitly labeled as USB
+        # Log all available devices
         for index, name in enumerate(mics):
             logger.info(f"Device {index}: {name}")
-            if 'usb' in name.lower():
-                if test_microphone(index):
-                    logger.info(f"Found working USB microphone: {name} (index: {index})")
-                    return index
         
-        # If no USB device found, try other likely input devices
+        # Try default device first (index 0)
+        if test_microphone(0):
+            logger.info(f"Default microphone working (index: 0)")
+            return 0
+            
+        # Then try all devices
         for index, name in enumerate(mics):
-            if any(keyword in name.lower() for keyword in ['input', 'mic', 'audio']):
-                if test_microphone(index):
-                    logger.info(f"Found working microphone: {name} (index: {index})")
-                    return index
+            # Skip device 0 as we already tested it
+            if index == 0:
+                continue
+                
+            logger.info(f"Testing device {index}: {name}")
+            if test_microphone(index):
+                logger.info(f"Found working microphone: {name} (index: {index})")
+                return index
         
         logger.error("No working microphone found!")
-        return None
+        return 0  # Return default device as fallback
     except Exception as e:
         logger.error(f"Error scanning for microphones: {str(e)}")
-        return None
+        return 0  # Return default device as fallback
 
 def get_settings():
     """Get current settings from the database."""
@@ -1055,19 +1071,21 @@ def voice_listener_loop():
     """Continuously listen for voice commands in the background."""
     recognizer = sr.Recognizer()
     
+    # Configure recognizer
+    recognizer.dynamic_energy_threshold = True  # Automatically adjust for ambient noise
+    recognizer.energy_threshold = 4000  # Higher threshold for better noise handling
+    recognizer.pause_threshold = 0.8  # Shorter pause threshold for quicker response
+    
     while True:  # Keep trying to find a microphone
         try:
             # Find a working microphone
             device_index = find_working_usb_microphone()
-            if device_index is None:
-                logger.error("No working microphone found. Retrying in 5 seconds...")
-                time.sleep(5)
-                continue
+            logger.info(f"Using microphone with index: {device_index}")
 
             with sr.Microphone(device_index=device_index) as source:
                 # Initial ambient noise adjustment
                 logger.info("Adjusting for ambient noise...")
-                recognizer.adjust_for_ambient_noise(source, duration=2)
+                recognizer.adjust_for_ambient_noise(source, duration=1)
                 
                 while True:  # Main listening loop
                     try:
@@ -1079,35 +1097,41 @@ def voice_listener_loop():
                             logger.info("Readjusting for ambient noise...")
                             recognizer.adjust_for_ambient_noise(source, duration=1)
 
-                        audio = recognizer.listen(source, timeout=None, phrase_time_limit=5)
-                        broadcast_listening_status('processing')
-                        
                         try:
-                            text = recognizer.recognize_google(audio).lower()
-                            logger.info(f"Heard: {text}")
+                            # Listen with a timeout to allow for periodic checks
+                            audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
+                            broadcast_listening_status('processing')
                             
-                            if "puff" in text:
-                                response = process_voice_command(text)
-                                logger.info(f"Response: {response['response']}")
-                                speak_response(response['response'])
-                                broadcast_response(response['response'])
+                            try:
+                                text = recognizer.recognize_google(audio).lower()
+                                logger.info(f"Heard: {text}")
+                                
+                                if "puff" in text:
+                                    response = process_voice_command(text)
+                                    logger.info(f"Response: {response['response']}")
+                                    speak_response(response['response'])
+                                    broadcast_response(response['response'])
+                                
+                            except sr.UnknownValueError:
+                                pass  # Speech was unclear
+                            except sr.RequestError as e:
+                                logger.error(f"Speech recognition service error: {str(e)}")
+                                time.sleep(1)
+                                
+                        except sr.WaitTimeoutError:
+                            pass  # Timeout is normal, just continue listening
                             
-                        except sr.UnknownValueError:
-                            pass  # Speech was unclear
-                        except sr.RequestError as e:
-                            logger.error(f"Speech recognition service error: {str(e)}")
-                            time.sleep(1)  # Brief pause before retrying
-                        
                         broadcast_listening_status('idle')
                         
                     except Exception as e:
                         logger.error(f"Error in main listening loop: {str(e)}")
                         broadcast_listening_status('idle')
                         time.sleep(1)
+                        break  # Break inner loop to reinitialize microphone
                         
         except Exception as e:
             logger.error(f"Error in voice listener setup: {str(e)}")
-            time.sleep(5)  # Longer pause before retrying microphone setup
+            time.sleep(2)  # Short pause before retrying microphone setup
 
 def process_voice_command(query):
     """Process a voice command and return a response."""
