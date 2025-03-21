@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 """
 SDS011 Air Quality Monitoring System with AI Assistant "Puff"
 A comprehensive system for monitoring air quality using the SDS011 sensor,
@@ -33,102 +33,90 @@ sock = Sock(app)
 # Global WebSocket clients list
 ws_clients = set()
 
-@sock.route('/ws')
-def ws_handler(ws):
-    """Handle WebSocket connections."""
-    ws_clients.add(ws)
-    try:
-        while True:
-            # Keep connection alive
-            ws.receive()
-    except:
-        ws_clients.remove(ws)
-
-def broadcast_to_clients(message_type, data):
-    """Broadcast messages to all connected clients."""
-    message = json.dumps({
-        'type': message_type,
-        'data': data
-    })
-    dead_clients = set()
-    
-    for client in ws_clients:
-        try:
-            client.send(message)
-        except:
-            dead_clients.add(client)
-    
-    # Remove dead clients
-    for client in dead_clients:
-        ws_clients.remove(client)
-
-def broadcast_listening_status(status):
-    """Broadcast listening status to all connected clients."""
-    broadcast_to_clients('status', {'status': status})
-
-def broadcast_response(response_text):
-    """Broadcast response text to all connected clients."""
-    broadcast_to_clients('response', {'text': response_text})
-
-# HTML Templates as Multi-line Strings
+# HTML Templates
 index_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Response Overlay HTML -->
-    <template id="overlayTemplate">
-        <div id="responseOverlay">
-            <div id="responseText"></div>
-        </div>
-    </template>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Air Quality Monitor</title>
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        #responseOverlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(5px);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-        }
-        #responseOverlay.active {
-            display: flex;
-            opacity: 1;
-        }
-        #responseText {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 2rem;
-            border-radius: 1rem;
-            max-width: 80%;
-            text-align: center;
-            font-size: 1.5rem;
-            color: #1F2937;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-            transform: translateY(20px);
-            transition: transform 0.3s ease-out;
-        }
-        #responseOverlay.active #responseText {
-            transform: translateY(0);
+        body { 
+            font-family: 'Inter', sans-serif;
+            transition: background-color 0.3s ease;
         }
         .glass {
             background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+        .glass:hover {
+            background: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+        }
+        .nav-link {
+            position: relative;
+            transition: color 0.3s ease;
+        }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -4px;
+            left: 0;
+            background-color: #3B82F6;
+            transition: width 0.3s ease;
+        }
+        .nav-link:hover::after {
+            width: 100%;
+        }
+        .card {
+            transform: translateY(0);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .button {
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .button::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: -100%;
+            background: linear-gradient(
+                90deg,
+                rgba(255,255,255,0) 0%,
+                rgba(255,255,255,0.2) 50%,
+                rgba(255,255,255,0) 100%
+            );
+            transition: left 0.5s ease;
+        }
+        .button:hover::after {
+            left: 100%;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease forwards;
+        }
+        .page-transition {
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeIn 0.5s ease forwards;
         }
     </style>
 </head>
@@ -136,50 +124,43 @@ index_html = """
     <nav class="glass fixed w-full top-0 z-50 shadow-sm">
         <div class="container mx-auto px-6 py-4">
             <div class="flex items-center justify-between">
-                <div class="text-xl font-semibold text-gray-800">Air Quality Monitor</div>
-                <div class="space-x-6 flex items-center">
-                    <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
-                    <a href="/history" class="text-gray-600 hover:text-gray-900">History</a>
-                    <a href="/settings" class="text-gray-600 hover:text-gray-900">Settings</a>
-                    <a href="/onboarding" class="text-gray-600 hover:text-gray-900">Help</a>
-                    <button onclick="toggleFullscreen()" class="ml-4 bg-blue-500 text-white px-3 py-1 rounded-lg hover:bg-blue-600 transition-colors">
-                        <i class="fas fa-expand"></i>
-                    </button>
+                <div class="text-xl font-semibold text-gray-800 fade-in">Air Quality Monitor</div>
+                <div class="space-x-8">
+                    <a href="/" class="nav-link text-gray-600 hover:text-gray-900 transition-all">Dashboard</a>
+                    <a href="/history" class="nav-link text-gray-600 hover:text-gray-900 transition-all">History</a>
+                    <a href="/settings" class="nav-link text-gray-600 hover:text-gray-900 transition-all">Settings</a>
+                    <a href="/onboarding" class="nav-link text-gray-600 hover:text-gray-900 transition-all">Help</a>
                 </div>
             </div>
         </div>
     </nav>
 
     <main class="container mx-auto px-6 pt-24 pb-12">
-        <div class="glass rounded-2xl p-8 shadow-lg">
-            <h1 class="text-2xl font-semibold text-gray-800 mb-6">Real-time Air Quality</h1>
+        <div class="glass rounded-2xl p-8 shadow-lg backdrop-blur-lg transition-all duration-300 hover:shadow-xl page-transition">
+            <h1 class="text-2xl font-semibold text-gray-800 mb-6 fade-in">Real-time Air Quality</h1>
             
-            <!-- Add listening indicator -->
-            <div class="listening-indicator">
-                <i class="fas fa-microphone"></i>
-            </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div>
+                <div class="card transition-transform duration-300">
                     <canvas id="gaugeChart" class="w-full"></canvas>
                 </div>
                 <div class="space-y-6">
-                    <div class="glass rounded-xl p-6">
+                    <div class="glass rounded-xl p-6 card hover:shadow-lg transition-all duration-300">
                         <h2 class="text-lg font-medium text-gray-800 mb-2">Current Readings</h2>
                         <div class="grid grid-cols-2 gap-4">
-                            <div>
+                            <div class="transition-all duration-300">
                                 <div class="text-sm text-gray-600">PM2.5</div>
-                                <div id="pm25" class="text-2xl font-semibold text-gray-800">--</div>
+                                <div id="pm25" class="text-2xl font-semibold text-gray-800 transition-opacity duration-200">--</div>
                             </div>
-                            <div>
+                            <div class="transition-all duration-300">
                                 <div class="text-sm text-gray-600">PM10</div>
-                                <div id="pm10" class="text-2xl font-semibold text-gray-800">--</div>
+                                <div id="pm10" class="text-2xl font-semibold text-gray-800 transition-opacity duration-200">--</div>
                             </div>
                         </div>
                     </div>
-                    <div class="glass rounded-xl p-6">
+                    <div class="glass rounded-xl p-6 card hover:shadow-lg transition-all duration-300">
                         <h2 class="text-lg font-medium text-gray-800 mb-2">Voice Assistant</h2>
-                        <button onclick="activatePuff()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors w-full">
-                            Activate Puff
+                        <button onclick="activatePuff()" class="button bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-all duration-300 w-full transform hover:scale-[1.02]">
+                            <i class="fas fa-microphone mr-2"></i>Ask Puff
                         </button>
                     </div>
                 </div>
@@ -187,88 +168,57 @@ index_html = """
         </div>
     </main>
 
+    <div id="responseOverlay" class="fixed inset-0 hidden z-[9999] transition-all duration-300">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-md transition-all duration-300"></div>
+        <div class="relative w-full h-full flex items-center justify-center">
+            <div id="responseText" class="glass bg-white/90 p-8 rounded-xl max-w-2xl mx-4 text-2xl text-gray-800 font-medium shadow-xl transform transition-all duration-300 scale-95 opacity-0">
+                <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer"></div>
+            </div>
+        </div>
+    </div>
+
     <style>
-        /* Add styles for the listening indicator */
-        @keyframes pulse {
-            0% { transform: scale(1); opacity: 0.5; }
-            50% { transform: scale(1.2); opacity: 1; }
-            100% { transform: scale(1); opacity: 0.5; }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
         }
-        .listening-indicator {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 50px;
-            height: 50px;
-            border-radius: 25px;
-            background: #3B82F6;
-            display: none;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            font-size: 24px;
-            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+        .animate-shimmer {
+            animation: shimmer 2s infinite;
         }
-        .listening-indicator.active {
-            display: flex;
-            animation: pulse 1.5s infinite;
+        #responseOverlay.active #responseText {
+            opacity: 1;
+            transform: scale(100%);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
         }
     </style>
+
     <script>
-        // Initialize response overlay
-        document.body.insertAdjacentHTML('afterbegin', `
-            <div id="responseOverlay" class="fixed inset-0 hidden z-[9999]">
-                <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-                <div class="relative w-full h-full flex items-center justify-center">
-                    <div id="responseText" class="bg-white/90 p-8 rounded-xl max-w-2xl mx-4 text-2xl text-gray-800 font-medium shadow-lg transform transition-all"></div>
-                </div>
-            </div>
-        `);
-
-        // Fullscreen toggle function
-        function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                }
-            }
-        }
-
-        // WebSocket connection for listening status
+        // WebSocket connection
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
-        const indicator = document.querySelector('.listening-indicator');
         
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
             const overlay = document.getElementById('responseOverlay');
             
-            if (data.type === 'status') {
-                if (data.data.status === 'listening') {
-                    indicator.classList.add('active');
-                    indicator.style.background = '#3B82F6';  // Blue
-                } else if (data.data.status === 'processing') {
-                    indicator.classList.add('active');
-                    indicator.style.background = '#10B981';  // Green
-                } else {
-                    indicator.classList.remove('active');
-                }
-            } else if (data.type === 'response') {
-                // Show response overlay
+            if (data.type === 'response') {
                 const responseText = document.getElementById('responseText');
                 responseText.textContent = data.data.text;
-                overlay.classList.add('active');
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
                 
-                // Hide after 5 seconds
                 setTimeout(() => {
-                    overlay.classList.remove('active');
+                    overlay.classList.add('hidden');
+                    overlay.classList.remove('flex');
                 }, 5000);
             }
         };
 
-        // Initialize gauge chart
+        // Initialize gauge chart with smooth animations
         const ctx = document.getElementById('gaugeChart').getContext('2d');
         const gaugeChart = new Chart(ctx, {
             type: 'doughnut',
@@ -278,61 +228,91 @@ index_html = """
                     backgroundColor: ['#10B981', '#E5E7EB'],
                     circumference: 180,
                     rotation: 270,
+                    borderWidth: 0
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '80%',
+                cutout: '75%',
                 plugins: {
-                    legend: { display: false }
+                    legend: { display: false },
+                    tooltip: { enabled: false }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeInOutQuart'
                 }
             }
         });
 
-        // Function to update the gauge and readings
+        // Add gradient to gauge
+        const gradient = ctx.createLinearGradient(0, 0, 200, 0);
+        gradient.addColorStop(0, '#10B981');    // Green
+        gradient.addColorStop(0.5, '#3B82F6');  // Blue
+        gradient.addColorStop(1, '#6366F1');    // Indigo
+
+        // Update readings with smooth animations
         function updateReadings() {
             fetch('/api/current')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('pm25').textContent = data.pm25.toFixed(1);
-                    document.getElementById('pm10').textContent = data.pm10.toFixed(1);
+                    // Update numerical displays with fade
+                    const pm25Display = document.getElementById('pm25');
+                    const pm10Display = document.getElementById('pm10');
                     
-                    // Update gauge based on PM2.5 (adjust scale as needed)
+                    pm25Display.style.opacity = '0';
+                    pm10Display.style.opacity = '0';
+                    
+                    setTimeout(() => {
+                        pm25Display.textContent = data.pm25.toFixed(1);
+                        pm10Display.textContent = data.pm10.toFixed(1);
+                        pm25Display.style.opacity = '1';
+                        pm10Display.style.opacity = '1';
+                    }, 200);
+                    
+                    // Update gauge with enhanced scaling
                     const pm25 = data.pm25;
-                    const percentage = Math.min(pm25 / 100 * 100, 100);
+                    // Use logarithmic scaling for better visualization
+                    const percentage = Math.min(
+                        (Math.log(pm25 + 1) / Math.log(100)) * 100,
+                        100
+                    );
+                    
                     gaugeChart.data.datasets[0].data = [percentage, 100 - percentage];
                     
-                    // Update color based on value
-                    let color;
-                    if (pm25 < 12) color = '#10B981';      // Green
-                    else if (pm25 < 35) color = '#FBBF24';  // Yellow
-                    else color = '#EF4444';                 // Red
+                    // Dynamic gradient based on value
+                    let gradientColors;
+                    if (pm25 < 12) {
+                        gradientColors = [
+                            { stop: 0, color: '#10B981' },    // Green
+                            { stop: 1, color: '#34D399' }     // Light green
+                        ];
+                    } else if (pm25 < 35) {
+                        gradientColors = [
+                            { stop: 0, color: '#FBBF24' },    // Yellow
+                            { stop: 1, color: '#F59E0B' }     // Dark yellow
+                        ];
+                    } else {
+                        gradientColors = [
+                            { stop: 0, color: '#EF4444' },    // Red
+                            { stop: 1, color: '#DC2626' }     // Dark red
+                        ];
+                    }
                     
-                    gaugeChart.data.datasets[0].backgroundColor[0] = color;
-                    gaugeChart.update();
+                    const gradient = ctx.createLinearGradient(0, 0, 200, 0);
+                    gradientColors.forEach(({stop, color}) => {
+                        gradient.addColorStop(stop, color);
+                    });
+                    
+                    gaugeChart.data.datasets[0].backgroundColor[0] = gradient;
+                    gaugeChart.update('none'); // Update without animation for smoother transitions
                 })
-                .catch(error => console.error('Error fetching data:', error));
+                .catch(error => console.error('Error:', error));
         }
 
-        // Update readings every 5 seconds
         updateReadings();
         setInterval(updateReadings, 5000);
-
-        // Show response overlay
-        function showResponse(text, duration = 5000) {
-            const overlay = document.getElementById('responseOverlay');
-            const responseText = document.getElementById('responseText');
-            
-            responseText.textContent = text;
-            overlay.classList.remove('hidden');
-            overlay.classList.add('flex');
-            
-            setTimeout(() => {
-                overlay.classList.add('hidden');
-                overlay.classList.remove('flex');
-            }, duration);
-        }
 
         // Voice assistant activation
         function activatePuff() {
@@ -347,7 +327,16 @@ index_html = """
             })
             .then(response => response.json())
             .then(data => {
-                showResponse(data.response);
+                const overlay = document.getElementById('responseOverlay');
+                const responseText = document.getElementById('responseText');
+                responseText.textContent = data.response;
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
+                
+                setTimeout(() => {
+                    overlay.classList.add('hidden');
+                    overlay.classList.remove('flex');
+                }, 5000);
             })
             .catch(error => console.error('Error:', error));
         }
@@ -452,7 +441,7 @@ history_html = """
                     historyChart.data.datasets[1].data = data.pm10_values;
                     historyChart.update();
                 })
-                .catch(error => console.error('Error loading data:', error));
+                .catch(error => console.error('Error:', error));
         }
 
         // Load last 24 hours by default
@@ -551,7 +540,7 @@ settings_html = """
     </main>
 
     <script>
-        // Load current settings when page loads
+        // Load current settings
         fetch('/api/settings')
             .then(response => response.json())
             .then(data => {
@@ -562,7 +551,7 @@ settings_html = """
                 document.querySelector('[name="pm25_calibration"]').value = data.pm25_calibration;
                 document.querySelector('[name="pm10_calibration"]').value = data.pm10_calibration;
             })
-            .catch(error => console.error('Error loading settings:', error));
+            .catch(error => console.error('Error:', error));
 
         // Handle form submission
         document.getElementById('settingsForm').addEventListener('submit', function(e) {
@@ -589,7 +578,7 @@ settings_html = """
                 alert('Settings saved successfully!');
             })
             .catch(error => {
-                console.error('Error saving settings:', error);
+                console.error('Error:', error);
                 alert('Error saving settings. Please try again.');
             });
         });
@@ -599,12 +588,12 @@ settings_html = """
 """
 
 onboarding_html = """
-<!DOCTYPE html>
+
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Air Quality Monitor - Onboarding</title>
+    <title>Air Quality Monitor - Help</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -614,19 +603,13 @@ onboarding_html = """
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
-        .step {
-            display: none;
-        }
-        .step.active {
-            display: block;
-        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-purple-50 min-h-screen">
     <nav class="glass fixed w-full top-0 z-50 shadow-sm">
         <div class="container mx-auto px-6 py-4">
             <div class="flex items-center justify-between">
-                <div class="text-xl font-semibold text-gray-800">Onboarding</div>
+                <div class="text-xl font-semibold text-gray-800">Help & Guide</div>
                 <div class="space-x-6">
                     <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
                     <a href="/history" class="text-gray-600 hover:text-gray-900">History</a>
@@ -639,117 +622,98 @@ onboarding_html = """
 
     <main class="container mx-auto px-6 pt-24 pb-12">
         <div class="glass rounded-2xl p-8 shadow-lg">
-            <div class="max-w-2xl mx-auto">
-                <div class="step active" data-step="1">
-                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Welcome to Your Air Quality Monitor!</h2>
-                    <p class="text-gray-600 mb-6">Let's get you set up with your new air quality monitoring system. This quick guide will walk you through the basics.</p>
-                    <img src="https://placehold.co/600x300" alt="Welcome" class="rounded-lg mb-6">
-                    <button onclick="nextStep()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">Get Started</button>
-                </div>
+            <div class="max-w-3xl mx-auto space-y-8">
+                <section>
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Welcome to Your Air Quality Monitor</h2>
+                    <p class="text-gray-600">This system helps you monitor air quality in real-time using the SDS011 sensor.</p>
+                </section>
 
-                <div class="step" data-step="2">
-                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Connecting Your Sensor</h2>
-                    <p class="text-gray-600 mb-6">The SDS011 sensor should be connected to your Raspberry Pi via USB. Make sure it's properly plugged in and recognized by the system.</p>
-                    <div class="space-y-4 mb-6">
-                        <div class="flex items-start">
-                            <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center">1</div>
-                            <div class="ml-3">
-                                <p class="text-gray-700">Plug the sensor into any available USB port</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start">
-                            <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center">2</div>
-                            <div class="ml-3">
-                                <p class="text-gray-700">Wait for the green LED to light up</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start">
-                            <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center">3</div>
-                            <div class="ml-3">
-                                <p class="text-gray-700">The system will automatically detect the sensor</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="flex space-x-4">
-                        <button onclick="prevStep()" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors">Back</button>
-                        <button onclick="nextStep()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">Next</button>
-                    </div>
-                </div>
-
-                <div class="step" data-step="3">
-                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Understanding the Dashboard</h2>
-                    <p class="text-gray-600 mb-6">The main dashboard shows real-time air quality data through an easy-to-read gauge and numerical displays.</p>
-                    <div class="space-y-4 mb-6">
+                <section>
+                    <h3 class="text-xl font-medium text-gray-800 mb-3">Dashboard Overview</h3>
+                    <div class="space-y-4">
                         <div class="glass rounded-xl p-4">
-                            <h3 class="font-medium text-gray-800 mb-2">Gauge Chart</h3>
-                            <p class="text-gray-600">Shows current PM2.5 levels with color-coding:</p>
-                            <ul class="list-disc list-inside text-gray-600 ml-4">
-                                <li>Green: Good air quality</li>
-                                <li>Yellow: Moderate levels</li>
-                                <li>Red: Poor air quality</li>
+                            <h4 class="font-medium text-gray-800 mb-2">Gauge Display</h4>
+                            <p class="text-gray-600">Shows current PM2.5 levels with color indicators:</p>
+                            <ul class="list-disc list-inside text-gray-600 ml-4 mt-2">
+                                <li>Green: Good air quality (0-12 μg/m³)</li>
+                                <li>Yellow: Moderate levels (12-35 μg/m³)</li>
+                                <li>Red: Poor air quality (>35 μg/m³)</li>
                             </ul>
                         </div>
-                        <div class="glass rounded-xl p-4">
-                            <h3 class="font-medium text-gray-800 mb-2">Numerical Readings</h3>
-                            <p class="text-gray-600">Display exact PM2.5 and PM10 values in μg/m³</p>
-                        </div>
-                    </div>
-                    <div class="flex space-x-4">
-                        <button onclick="prevStep()" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors">Back</button>
-                        <button onclick="nextStep()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">Next</button>
-                    </div>
-                </div>
 
-                <div class="step" data-step="4">
-                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Meet Puff - Your AI Assistant</h2>
-                    <p class="text-gray-600 mb-6">Puff is your voice-activated AI assistant. Just say "Puff" followed by your question about air quality.</p>
-                    <div class="space-y-4 mb-6">
                         <div class="glass rounded-xl p-4">
-                            <h3 class="font-medium text-gray-800 mb-2">Example Commands</h3>
-                            <ul class="list-disc list-inside text-gray-600 ml-4">
-                                <li>"Puff, what's the current air quality?"</li>
-                                <li>"Puff, show me today's highest reading"</li>
-                                <li>"Puff, when did PM levels spike last?"</li>
+                            <h4 class="font-medium text-gray-800 mb-2">Voice Assistant</h4>
+                            <p class="text-gray-600">Meet Puff, your air quality assistant. Try these commands:</p>
+                            <ul class="list-disc list-inside text-gray-600 ml-4 mt-2">
+                                <li>"What's the current air quality?"</li>
+                                <li>"Show me today's highest reading"</li>
+                                <li>"When did PM levels spike last?"</li>
                             </ul>
                         </div>
                     </div>
-                    <div class="flex space-x-4">
-                        <button onclick="prevStep()" class="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors">Back</button>
-                        <button onclick="nextStep()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">Finish</button>
-                    </div>
-                </div>
+                </section>
+
+                <section>
+                    <h3 class="text-xl font-medium text-gray-800 mb-3">History & Trends</h3>
+                    <p class="text-gray-600 mb-4">View historical data and trends in the History page:</p>
+                    <ul class="list-disc list-inside text-gray-600 ml-4">
+                        <li>24-hour view for detailed daily patterns</li>
+                        <li>7-day view for weekly trends</li>
+                        <li>30-day view for monthly analysis</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3 class="text-xl font-medium text-gray-800 mb-3">Customizing Settings</h3>
+                    <p class="text-gray-600 mb-4">Adjust your monitoring preferences:</p>
+                    <ul class="list-disc list-inside text-gray-600 ml-4">
+                        <li>Set custom warning thresholds</li>
+                        <li>Configure critical level alerts</li>
+                        <li>Calibrate sensor readings</li>
+                    </ul>
+                </section>
             </div>
         </div>
     </main>
-
-    <script>
-        let currentStep = 1;
-        const totalSteps = 4;
-
-        function showStep(step) {
-            document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
-            document.querySelector(`[data-step="${step}"]`).classList.add('active');
-        }
-
-        function nextStep() {
-            if (currentStep < totalSteps) {
-                currentStep++;
-                showStep(currentStep);
-            } else {
-                window.location.href = '/';  // Redirect to dashboard when finished
-            }
-        }
-
-        function prevStep() {
-            if (currentStep > 1) {
-                currentStep--;
-                showStep(currentStep);
-            }
-        }
-    </script>
 </body>
 </html>
 """
+@sock.route('/ws')
+def ws_handler(ws):
+    """Handle WebSocket connections."""
+    ws_clients.add(ws)
+    try:
+        while True:
+            # Keep connection alive
+            ws.receive()
+    except:
+        ws_clients.remove(ws)
+
+def broadcast_to_clients(message_type, data):
+    """Broadcast messages to all connected clients."""
+    message = json.dumps({
+        'type': message_type,
+        'data': data
+    })
+    dead_clients = set()
+    
+    for client in ws_clients:
+        try:
+            client.send(message)
+        except:
+            dead_clients.add(client)
+    
+    # Remove dead clients
+    for client in dead_clients:
+        ws_clients.remove(client)
+
+def broadcast_listening_status(status):
+    """Broadcast listening status to all connected clients."""
+    broadcast_to_clients('status', {'status': status})
+
+def broadcast_response(response_text):
+    """Broadcast response text to all connected clients."""
+    broadcast_to_clients('response', {'text': response_text})
 
 def setup_logger():
     """Configure and return a logger instance."""
@@ -813,24 +777,6 @@ def init_db():
         logger.error(f"Database initialization error: {str(e)}")
         raise
 
-def insert_reading(pm25, pm10, timestamp=None):
-    """Insert a new sensor reading into the database."""
-    if timestamp is None:
-        timestamp = datetime.now()
-    
-    try:
-        conn = sqlite3.connect(DB_FILENAME)
-        cursor = conn.cursor()
-        cursor.execute(
-            'INSERT INTO sensor_readings (pm25, pm10, timestamp) VALUES (?, ?, ?)',
-            (pm25, pm10, timestamp)
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error inserting sensor reading: {str(e)}")
-        raise
-
 def query_current():
     """Get the most recent sensor reading."""
     try:
@@ -890,108 +836,6 @@ def query_history(timeframe='24h'):
         logger.error(f"Error querying historical data: {str(e)}")
         raise
 
-def get_settings():
-    """Retrieve current settings from the database."""
-    try:
-        conn = sqlite3.connect(DB_FILENAME)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM settings ORDER BY id DESC LIMIT 1')
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {
-                'pm25_warning': result[1],
-                'pm25_critical': result[2],
-                'pm10_warning': result[3],
-                'pm10_critical': result[4],
-                'pm25_calibration': result[5],
-                'pm10_calibration': result[6]
-            }
-        return None
-    except Exception as e:
-        logger.error(f"Error retrieving settings: {str(e)}")
-        raise
-
-def update_settings(settings_data):
-    """Update sensor settings in the database."""
-    try:
-        conn = sqlite3.connect(DB_FILENAME)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO settings (
-                pm25_warning, pm25_critical,
-                pm10_warning, pm10_critical,
-                pm25_calibration, pm10_calibration
-            ) VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            settings_data['pm25_warning'],
-            settings_data['pm25_critical'],
-            settings_data['pm10_warning'],
-            settings_data['pm10_critical'],
-            settings_data['pm25_calibration'],
-            settings_data['pm10_calibration']
-        ))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error updating settings: {str(e)}")
-        raise
-
-def setup_sensor():
-    """Initialize and return a serial connection to the SDS011 sensor."""
-    try:
-        ser = serial.Serial(
-            port=SENSOR_PORT,
-            baudrate=BAUD_RATE,
-            timeout=READ_TIMEOUT
-        )
-        logger.info(f"Sensor connected on {SENSOR_PORT}")
-        return ser
-    except Exception as e:
-        logger.error(f"Error connecting to sensor: {str(e)}")
-        raise
-
-def read_sensor_data(ser):
-    """Read and parse data from the SDS011 sensor."""
-    try:
-        # SDS011 data packet is 10 bytes long
-        data = ser.read(10)
-        
-        if len(data) == 10 and data[0] == 0xAA and data[1] == 0xC0:
-            pm25 = float(data[2] + data[3] * 256) / 10.0
-            pm10 = float(data[4] + data[5] * 256) / 10.0
-            return pm25, pm10
-        return None, None
-    except Exception as e:
-        logger.error(f"Error reading sensor data: {str(e)}")
-        return None, None
-
-def sensor_loop():
-    """Main loop for reading sensor data and storing it in the database."""
-    try:
-        ser = setup_sensor()
-        while True:
-            pm25, pm10 = read_sensor_data(ser)
-            if pm25 is not None and pm10 is not None:
-                insert_reading(pm25, pm10)
-                logger.debug(f"Recorded reading - PM2.5: {pm25}, PM10: {pm10}")
-            time.sleep(SENSOR_READ_INTERVAL)
-    except Exception as e:
-        logger.error(f"Sensor loop error: {str(e)}")
-        time.sleep(5)  # Wait before retrying
-
-def speak_response(response_text):
-    """Convert text to speech and play it."""
-    try:
-        tts = gTTS(text=response_text, lang='en')
-        temp_file = "response.mp3"
-        tts.save(temp_file)
-        os.system(f"mpg123 {temp_file}")  # Using mpg123 to play the audio
-        os.remove(temp_file)
-    except Exception as e:
-        logger.error(f"Error in text-to-speech: {str(e)}")
-
 def get_highest_reading(timeframe='24h'):
     """Get the highest PM readings within the specified timeframe."""
     try:
@@ -1036,6 +880,134 @@ def find_last_spike(threshold_factor=1.5):
     except Exception as e:
         logger.error(f"Error finding last spike: {str(e)}")
         return None
+
+def setup_sensor():
+    """Initialize and return a serial connection to the SDS011 sensor."""
+    try:
+        ser = serial.Serial(
+            port=SENSOR_PORT,
+            baudrate=BAUD_RATE,
+            timeout=READ_TIMEOUT
+        )
+        logger.info(f"Sensor connected on {SENSOR_PORT}")
+        return ser
+    except Exception as e:
+        logger.error(f"Error connecting to sensor: {str(e)}")
+        raise
+
+def read_sensor_data(ser):
+    """Read and parse data from the SDS011 sensor."""
+    try:
+        # SDS011 data packet is 10 bytes long
+        data = ser.read(10)
+        
+        if len(data) == 10 and data[0] == 0xAA and data[1] == 0xC0:
+            pm25 = float(data[2] + data[3] * 256) / 10.0
+            pm10 = float(data[4] + data[5] * 256) / 10.0
+            return pm25, pm10
+        return None, None
+    except Exception as e:
+        logger.error(f"Error reading sensor data: {str(e)}")
+        return None, None
+
+def sensor_loop():
+    """Main loop for reading sensor data and storing it in the database."""
+    try:
+        ser = setup_sensor()
+        while True:
+            pm25, pm10 = read_sensor_data(ser)
+            if pm25 is not None and pm10 is not None:
+                insert_reading(pm25, pm10)
+                logger.debug(f"Recorded reading - PM2.5: {pm25}, PM10: {pm10}")
+            time.sleep(SENSOR_READ_INTERVAL)
+    except Exception as e:
+        logger.error(f"Sensor loop error: {str(e)}")
+        time.sleep(5)  # Wait before retrying
+
+def test_microphone(device_index):
+    """Test if a microphone device is working."""
+    try:
+        recognizer = sr.Recognizer()
+        with sr.Microphone(device_index=device_index) as source:
+            logger.info(f"Testing microphone at index {device_index}")
+            # Try to get audio from the microphone
+            audio = recognizer.listen(source, timeout=1, phrase_time_limit=1)
+            return True
+    except Exception as e:
+        logger.error(f"Microphone test failed for index {device_index}: {str(e)}")
+        return False
+
+def find_working_usb_microphone():
+    """Scan for and find a working USB microphone."""
+    try:
+        # Get list of all audio devices
+        mics = sr.Microphone.list_microphone_names()
+        logger.info(f"Found {len(mics)} audio devices:")
+        
+        # First try devices that are explicitly labeled as USB
+        for index, name in enumerate(mics):
+            logger.info(f"Device {index}: {name}")
+            if 'usb' in name.lower():
+                if test_microphone(index):
+                    logger.info(f"Found working USB microphone: {name} (index: {index})")
+                    return index
+        
+        # If no USB device found, try other likely input devices
+        for index, name in enumerate(mics):
+            if any(keyword in name.lower() for keyword in ['input', 'mic', 'audio']):
+                if test_microphone(index):
+                    logger.info(f"Found working microphone: {name} (index: {index})")
+                    return index
+        
+        logger.error("No working microphone found!")
+        return None
+    except Exception as e:
+        logger.error(f"Error scanning for microphones: {str(e)}")
+        return None
+
+def voice_listener_loop():
+    """Continuously listen for voice commands in the background."""
+    recognizer = sr.Recognizer()
+    
+    # Find a working microphone
+    device_index = find_working_usb_microphone()
+    if device_index is None:
+        logger.error("Could not find any working microphone. Voice commands will be disabled.")
+        return
+    
+    while True:
+        try:
+            with sr.Microphone(device_index=device_index) as source:
+                logger.info("Listening for commands...")
+                broadcast_listening_status('listening')
+                
+                # Adjust for ambient noise with longer duration for better calibration
+                logger.info("Adjusting for ambient noise...")
+                recognizer.adjust_for_ambient_noise(source, duration=2)
+                audio = recognizer.listen(source)
+                broadcast_listening_status('processing')
+                
+                try:
+                    text = recognizer.recognize_google(audio).lower()
+                    logger.info(f"Heard: {text}")
+                    
+                    if "puff" in text:
+                        response = process_voice_command(text)
+                        logger.info(f"Response: {response['response']}")
+                        speak_response(response['response'])
+                        broadcast_response(response['response'])
+                        
+                except sr.UnknownValueError:
+                    pass  # Speech was unclear
+                except sr.RequestError as e:
+                    logger.error(f"Could not request results from speech recognition service: {str(e)}")
+                    
+                broadcast_listening_status('idle')
+                    
+        except Exception as e:
+            logger.error(f"Error in voice listener loop: {str(e)}")
+            broadcast_listening_status('idle')
+            time.sleep(1)  # Wait before retrying
 
 def process_voice_command(query):
     """Process a voice command and return a response."""
@@ -1088,40 +1060,34 @@ def process_voice_command(query):
         logger.error(f"Error processing voice command: {str(e)}")
         return {'response': "I'm sorry, I encountered an error processing your request."}
 
-def voice_listener_loop():
-    """Continuously listen for voice commands in the background."""
-    recognizer = sr.Recognizer()
+def speak_response(response_text):
+    """Convert text to speech and play it."""
+    try:
+        tts = gTTS(text=response_text, lang='en')
+        temp_file = "response.mp3"
+        tts.save(temp_file)
+        os.system(f"mpg123 {temp_file}")  # Using mpg123 to play the audio
+        os.remove(temp_file)
+    except Exception as e:
+        logger.error(f"Error in text-to-speech: {str(e)}")
+
+def insert_reading(pm25, pm10, timestamp=None):
+    """Insert a new sensor reading into the database."""
+    if timestamp is None:
+        timestamp = datetime.now()
     
-    while True:
-        try:
-            with sr.Microphone() as source:
-                logger.info("Listening for commands...")
-                broadcast_listening_status('listening')
-                recognizer.adjust_for_ambient_noise(source)
-                audio = recognizer.listen(source)
-                broadcast_listening_status('processing')
-                
-                try:
-                    text = recognizer.recognize_google(audio).lower()
-                    logger.info(f"Heard: {text}")
-                    
-                    if "puff" in text:
-                        response = process_voice_command(text)
-                        logger.info(f"Response: {response['response']}")
-                        speak_response(response['response'])
-                        broadcast_response(response['response'])
-                        
-                except sr.UnknownValueError:
-                    pass  # Speech was unclear
-                except sr.RequestError as e:
-                    logger.error(f"Could not request results from speech recognition service: {str(e)}")
-                    
-                broadcast_listening_status('idle')
-                    
-        except Exception as e:
-            logger.error(f"Error in voice listener loop: {str(e)}")
-            broadcast_listening_status('idle')
-            time.sleep(1)  # Wait before retrying
+    try:
+        conn = sqlite3.connect(DB_FILENAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO sensor_readings (pm25, pm10, timestamp) VALUES (?, ?, ?)',
+            (pm25, pm10, timestamp)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error inserting sensor reading: {str(e)}")
+        raise
 
 # Flask Routes
 @app.route('/')
@@ -1227,12 +1193,11 @@ def open_browser():
     """Open the web browser in fullscreen."""
     import webbrowser
     from time import sleep
-    
     # Wait for Flask to start
     sleep(1.5)
     
     # Add JavaScript to make it fullscreen
-    url = f"javascript:(function(){{window.location='http://localhost:8000';setTimeout(function(){{document.documentElement.requestFullscreen()}},1000)}})();"
+    url = f"http://localhost:8000"
     webbrowser.open(url)
 
 def main():
