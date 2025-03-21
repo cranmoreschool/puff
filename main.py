@@ -14,7 +14,7 @@ import threading
 from datetime import datetime
 from flask import Flask, jsonify, request
 import serial
-import sounddevice as sd
+import speech_recognition as sr
 from vosk import Model, KaldiRecognizer
 import numpy as np
 from gtts import gTTS
@@ -980,10 +980,11 @@ def test_microphone(device_index):
         return False
         
     try:
-        # Try to record a short sample using sounddevice
-        duration = 0.5  # seconds
-        recording = sd.rec(int(duration * 16000), samplerate=16000, channels=1, dtype='int16', device=device_index)
-        sd.wait()  # Wait until recording is finished
+        # Try to record a short sample using speech_recognition
+        r = sr.Recognizer()
+        with sr.Microphone(device_index=device_index) as source:
+            r.adjust_for_ambient_noise(source, duration=1)
+            audio = r.listen(source, timeout=1, phrase_time_limit=1)
         logger.info(f"Successfully recorded audio sample from device {device_index}")
         return True
     except Exception as e:
@@ -999,40 +1000,38 @@ def test_microphone(device_index):
 def find_working_usb_microphone():
     """Scan for and find a working USB microphone with Raspberry Pi support."""
     try:
-        # Get list of all audio devices using sounddevice
-        devices = sd.query_devices()
-        logger.info(f"Found {len(devices)} audio devices:")
+        # Get list of all audio devices using speech_recognition
+        mics = sr.Microphone.list_microphone_names()
+        logger.info(f"Found {len(mics)} audio devices:")
         
         # Log all available devices with detailed info
         usb_indices = []
-        for i, device in enumerate(devices):
-            logger.info(f"Device {i}: {device['name']}")
+        for i, mic in enumerate(mics):
+            logger.info(f"Device {i}: {mic}")
             # Look for input devices with USB or common microphone keywords
-            if device['max_input_channels'] > 0 and any(keyword in device['name'].lower() 
-                for keyword in ['usb', 'mic', 'input', 'audio', 'generalplus']):
+            if any(keyword in mic.lower() for keyword in ['usb', 'mic', 'input', 'audio', 'generalplus']):
                 usb_indices.append(i)
-                logger.info(f"Potential USB microphone found: {device['name']}")
+                logger.info(f"Potential USB microphone found: {mic}")
         
         # First try devices identified as USB
         for index in usb_indices:
-            logger.info(f"Testing USB device {index}: {devices[index]['name']}")
+            logger.info(f"Testing USB device {index}: {mics[index]}")
             if test_microphone(index):
-                logger.info(f"Found working USB microphone: {devices[index]['name']} (index: {index})")
+                logger.info(f"Found working USB microphone: {mics[index]} (index: {index})")
                 return index
         
         # If no USB device works, try default device
         logger.info("No USB microphone found, trying default device")
-        if test_microphone(sd.default.device[0]):
+        if test_microphone(None):  # None uses default device
             logger.info("Default microphone working")
-            return sd.default.device[0]
+            return None
             
         # Finally try all remaining input devices
-        for i, device in enumerate(devices):
-            if (i not in usb_indices and i != sd.default.device[0] 
-                and device['max_input_channels'] > 0):
-                logger.info(f"Testing device {i}: {device['name']}")
+        for i, mic in enumerate(mics):
+            if i not in usb_indices:
+                logger.info(f"Testing device {i}: {mic}")
                 if test_microphone(i):
-                    logger.info(f"Found working microphone: {device['name']} (index: {i})")
+                    logger.info(f"Found working microphone: {mic} (index: {i})")
                     return i
         
         logger.error("No working microphone found! Please check USB microphone connection and permissions")
@@ -1113,21 +1112,22 @@ def setup_audio():
     """Set up audio device for recording."""
     try:
         # List available devices
-        devices = sd.query_devices()
+        mics = sr.Microphone.list_microphone_names()
         logger.info("Available audio devices:")
-        for i, dev in enumerate(devices):
-            logger.info(f"{i}: {dev['name']}")
+        for i, mic in enumerate(mics):
+            logger.info(f"{i}: {mic}")
         
         # Try to find input device
         input_device = None
-        for i, dev in enumerate(devices):
-            if dev['max_input_channels'] > 0:
+        for i, mic in enumerate(mics):
+            if any(keyword in mic.lower() for keyword in ['input', 'mic', 'audio']):
                 input_device = i
-                logger.info(f"Selected input device {i}: {dev['name']}")
+                logger.info(f"Selected input device {i}: {mic}")
                 break
         
         if input_device is None:
-            raise Exception("No input device found")
+            logger.info("No specific input device found, using default")
+            return None  # Let speech_recognition use default device
             
         return input_device
     except Exception as e:
@@ -1139,41 +1139,42 @@ def voice_listener_loop():
     try:
         # Set up Vosk model
         model = setup_vosk()
-        device = setup_audio()
+        device_index = setup_audio()
         
-        # Audio stream parameters
-        samplerate = 16000
-        blocksize = 8000
+        # Initialize recognizer
+        r = sr.Recognizer()
         
         while True:  # Main loop
             try:
-                # Initialize recognizer
-                rec = KaldiRecognizer(model, samplerate)
-                
-                def audio_callback(indata, frames, time, status):
-                    """Callback for audio stream processing."""
-                    if status:
-                        logger.warning(f"Audio status: {status}")
-                    if rec.AcceptWaveform(indata.tobytes()):
-                        result = json.loads(rec.Result())
-                        if 'text' in result and result['text']:
-                            text = result['text'].lower()
-                            logger.info(f"Heard: {text}")
-                            if "puff" in text:
-                                response = process_voice_command(text)
-                                logger.info(f"Response: {response['response']}")
-                                speak_response(response['response'])
-                                broadcast_response(response['response'])
-                
-                # Start audio stream
-                logger.info("Starting audio stream...")
-                with sd.InputStream(device=device, channels=1, samplerate=samplerate,
-                                 blocksize=blocksize, callback=audio_callback,
-                                 dtype=np.int16):
+                # Start listening
+                with sr.Microphone(device_index=device_index) as source:
+                    logger.info("Starting audio stream...")
                     broadcast_listening_status('listening')
+                    
+                    # Adjust for ambient noise
+                    r.adjust_for_ambient_noise(source)
+                    
                     while True:
-                        sd.sleep(1000)  # Sleep for 1 second
-                        
+                        try:
+                            audio = r.listen(source, timeout=1, phrase_time_limit=5)
+                            # Convert audio to text using Vosk
+                            rec = KaldiRecognizer(model, 16000)
+                            if rec.AcceptWaveform(audio.get_raw_data()):
+                                result = json.loads(rec.Result())
+                                if 'text' in result and result['text']:
+                                    text = result['text'].lower()
+                                    logger.info(f"Heard: {text}")
+                                    if "puff" in text:
+                                        response = process_voice_command(text)
+                                        logger.info(f"Response: {response['response']}")
+                                        speak_response(response['response'])
+                                        broadcast_response(response['response'])
+                        except sr.WaitTimeoutError:
+                            continue  # Keep listening
+                        except Exception as e:
+                            logger.error(f"Error processing audio: {str(e)}")
+                            continue
+                            
             except Exception as e:
                 logger.error(f"Error in audio stream: {str(e)}")
                 broadcast_listening_status('idle')
