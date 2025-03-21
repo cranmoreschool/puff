@@ -974,50 +974,74 @@ def sensor_loop():
         time.sleep(5)  # Wait before retrying
 
 def test_microphone(device_index):
-    """Test if a microphone device is working."""
+    """Test if a microphone device is working with enhanced error checking."""
+    if device_index is None:
+        return False
+        
     try:
         recognizer = sr.Recognizer()
         with sr.Microphone(device_index=device_index) as source:
             logger.info(f"Testing microphone at index {device_index}")
-            # Just try to initialize the microphone
+            # Try to initialize the microphone and actually record a short sample
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            logger.info("Attempting short recording test...")
+            audio = recognizer.listen(source, timeout=1, phrase_time_limit=1)
+            logger.info("Successfully recorded audio sample")
             return True
     except Exception as e:
-        logger.info(f"Device {device_index} not available: {str(e)}")
+        logger.error(f"Device {device_index} test failed: {str(e)}")
+        if "Invalid number of channels" in str(e):
+            logger.error("Try updating ALSA configuration for correct channel setup")
+        elif "USB" in str(e):
+            logger.error("USB microphone access error. Check permissions and connections")
+        elif "ALSA" in str(e):
+            logger.error("ALSA error. Try running: sudo modprobe snd-usb-audio")
         return False
 
 def find_working_usb_microphone():
-    """Scan for and find a working USB microphone."""
+    """Scan for and find a working USB microphone with Raspberry Pi support."""
     try:
         # Get list of all audio devices
         mics = sr.Microphone.list_microphone_names()
         logger.info(f"Found {len(mics)} audio devices:")
         
-        # Log all available devices
+        # Log all available devices with detailed info
+        usb_indices = []
         for index, name in enumerate(mics):
             logger.info(f"Device {index}: {name}")
+            # Look for USB or common microphone keywords
+            if any(keyword in name.lower() for keyword in ['usb', 'mic', 'input', 'audio', 'generalplus']):
+                usb_indices.append(index)
+                logger.info(f"Potential USB microphone found: {name}")
         
-        # Try default device first (index 0)
-        if test_microphone(0):
-            logger.info(f"Default microphone working (index: 0)")
-            return 0
-            
-        # Then try all devices
-        for index, name in enumerate(mics):
-            # Skip device 0 as we already tested it
-            if index == 0:
-                continue
-                
-            logger.info(f"Testing device {index}: {name}")
+        # First try devices identified as USB
+        for index in usb_indices:
+            logger.info(f"Testing USB device {index}: {mics[index]}")
             if test_microphone(index):
-                logger.info(f"Found working microphone: {name} (index: {index})")
+                logger.info(f"Found working USB microphone: {mics[index]} (index: {index})")
                 return index
         
-        logger.error("No working microphone found!")
-        return 0  # Return default device as fallback
+        # If no USB device works, try default device
+        logger.info("No USB microphone found, trying default device")
+        if test_microphone(0):
+            logger.info("Default microphone working (index: 0)")
+            return 0
+            
+        # Finally try all remaining devices
+        for index, name in enumerate(mics):
+            if index not in usb_indices and index != 0:
+                logger.info(f"Testing device {index}: {name}")
+                if test_microphone(index):
+                    logger.info(f"Found working microphone: {name} (index: {index})")
+                    return index
+        
+        logger.error("No working microphone found! Please check USB microphone connection and permissions")
+        logger.error("Try running: sudo usermod -aG audio $USER")
+        return None
     except Exception as e:
         logger.error(f"Error scanning for microphones: {str(e)}")
-        return 0  # Return default device as fallback
+        logger.error("Try checking ALSA configuration and USB microphone permissions")
+        return None
 
 def get_settings():
     """Get current settings from the database."""
@@ -1068,24 +1092,30 @@ def update_settings(settings):
         raise
 
 def voice_listener_loop():
-    """Continuously listen for voice commands in the background."""
+    """Continuously listen for voice commands with enhanced error handling."""
     recognizer = sr.Recognizer()
     
-    # Configure recognizer
-    recognizer.dynamic_energy_threshold = True  # Automatically adjust for ambient noise
-    recognizer.energy_threshold = 4000  # Higher threshold for better noise handling
-    recognizer.pause_threshold = 0.8  # Shorter pause threshold for quicker response
+    # Configure recognizer with Raspberry Pi optimized settings
+    recognizer.dynamic_energy_threshold = True
+    recognizer.energy_threshold = 3000  # Lower threshold for USB microphones
+    recognizer.pause_threshold = 0.8
+    recognizer.dynamic_energy_adjustment_ratio = 1.5  # More aggressive noise adjustment
     
     while True:  # Keep trying to find a microphone
         try:
             # Find a working microphone
             device_index = find_working_usb_microphone()
+            if device_index is None:
+                logger.error("No working microphone found. Retrying in 10 seconds...")
+                time.sleep(10)
+                continue
+                
             logger.info(f"Using microphone with index: {device_index}")
-
+            
             with sr.Microphone(device_index=device_index) as source:
-                # Initial ambient noise adjustment
-                logger.info("Adjusting for ambient noise...")
-                recognizer.adjust_for_ambient_noise(source, duration=1)
+                # Initial ambient noise adjustment with longer duration
+                logger.info("Performing initial ambient noise calibration...")
+                recognizer.adjust_for_ambient_noise(source, duration=2)
                 
                 while True:  # Main listening loop
                     try:
@@ -1540,9 +1570,47 @@ def open_browser():
     url = f"http://localhost:8000"
     webbrowser.open(url)
 
+def setup_alsa_config():
+    """Configure ALSA settings for Raspberry Pi audio."""
+    try:
+        # Create ALSA config directory if it doesn't exist
+        os.makedirs(os.path.expanduser('~/.asoundrc'), exist_ok=True)
+        
+        # Basic ALSA configuration for USB microphone
+        alsa_config = """
+pcm.!default {
+    type asym
+    playback.pcm {
+        type plug
+        slave.pcm "hw:0,0"
+    }
+    capture.pcm {
+        type plug
+        slave.pcm "hw:1,0"
+    }
+}
+
+ctl.!default {
+    type hw
+    card 1
+}
+"""
+        # Write configuration to user's .asoundrc
+        config_path = os.path.expanduser('~/.asoundrc/config')
+        with open(config_path, 'w') as f:
+            f.write(alsa_config)
+            
+        logger.info("ALSA configuration updated successfully")
+    except Exception as e:
+        logger.error(f"Error configuring ALSA: {str(e)}")
+        raise
+
 def main():
     """Initialize the application and start the required threads."""
     try:
+        # Configure ALSA for Raspberry Pi
+        setup_alsa_config()
+        
         # Initialize database
         init_db()
         
