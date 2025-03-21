@@ -20,31 +20,6 @@ if command -v apt-get &> /dev/null; then
     # Debian/Ubuntu
     sudo apt-get update
     sudo apt-get install -y python3-pyaudio mpg123 portaudio19-dev libasound2-dev alsa-utils
-    
-    # Configure ALSA
-    echo "Configuring ALSA..."
-    echo "pcm.!default {
-        type plug
-        slave.pcm \"null\"
-    }
-    
-    ctl.!default {
-        type hw
-        card 0
-    }" | sudo tee /etc/asound.conf > /dev/null
-    # Create ALSA config file
-    echo "Creating ALSA config..."
-    sudo mkdir -p /usr/share/alsa
-    echo "
-pcm.!default {
-    type plug
-    slave.pcm \"null\"
-}
-
-ctl.!default {
-    type hw
-    card 0
-}" | sudo tee /usr/share/alsa/alsa.conf
 elif command -v yum &> /dev/null; then
     # CentOS/RHEL
     sudo yum install -y python3-pyaudio mpg123 portaudio-devel
