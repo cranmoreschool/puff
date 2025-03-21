@@ -1,4 +1,4 @@
-# Puff
+# AirTester (Puff)
 
 We have an Air Quality Sensor that measures the particulate matter (PM for short) in the air. It can spike when doing things such as:
 * smoking
