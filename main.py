@@ -14,9 +14,11 @@ import threading
 from datetime import datetime
 from flask import Flask, jsonify, request
 import serial
-import speech_recognition as sr
+import sounddevice as sd
+from vosk import Model, KaldiRecognizer
+import json
+import numpy as np
 from gtts import gTTS
-import pyaudio
 from flask_sock import Sock
 
 # Global Configuration
@@ -1091,77 +1093,98 @@ def update_settings(settings):
         logger.error(f"Error updating settings: {str(e)}")
         raise
 
+def setup_vosk():
+    """Initialize Vosk speech recognition model."""
+    try:
+        # Check if model exists, if not download it
+        model_path = "vosk-model-small-en-us"
+        if not os.path.exists(model_path):
+            logger.info("Downloading Vosk model...")
+            os.system("wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip")
+            os.system("unzip vosk-model-small-en-us-0.15.zip")
+            os.system("mv vosk-model-small-en-us-0.15 vosk-model-small-en-us")
+            os.system("rm vosk-model-small-en-us-0.15.zip")
+        
+        model = Model(model_path)
+        return model
+    except Exception as e:
+        logger.error(f"Error setting up Vosk: {str(e)}")
+        raise
+
+def setup_audio():
+    """Set up audio device for recording."""
+    try:
+        # List available devices
+        devices = sd.query_devices()
+        logger.info("Available audio devices:")
+        for i, dev in enumerate(devices):
+            logger.info(f"{i}: {dev['name']}")
+        
+        # Try to find input device
+        input_device = None
+        for i, dev in enumerate(devices):
+            if dev['max_input_channels'] > 0:
+                input_device = i
+                logger.info(f"Selected input device {i}: {dev['name']}")
+                break
+        
+        if input_device is None:
+            raise Exception("No input device found")
+            
+        return input_device
+    except Exception as e:
+        logger.error(f"Error setting up audio: {str(e)}")
+        raise
+
 def voice_listener_loop():
-    """Continuously listen for voice commands with enhanced error handling."""
-    recognizer = sr.Recognizer()
-    
-    # Configure recognizer with Raspberry Pi optimized settings
-    recognizer.dynamic_energy_threshold = True
-    recognizer.energy_threshold = 3000  # Lower threshold for USB microphones
-    recognizer.pause_threshold = 0.8
-    recognizer.dynamic_energy_adjustment_ratio = 1.5  # More aggressive noise adjustment
-    
-    while True:  # Keep trying to find a microphone
-        try:
-            # Find a working microphone
-            device_index = find_working_usb_microphone()
-            if device_index is None:
-                logger.error("No working microphone found. Retrying in 10 seconds...")
-                time.sleep(10)
+    """Continuously listen for voice commands using Vosk."""
+    try:
+        # Set up Vosk model
+        model = setup_vosk()
+        device = setup_audio()
+        
+        # Audio stream parameters
+        samplerate = 16000
+        blocksize = 8000
+        
+        while True:  # Main loop
+            try:
+                # Initialize recognizer
+                rec = KaldiRecognizer(model, samplerate)
+                
+                def audio_callback(indata, frames, time, status):
+                    """Callback for audio stream processing."""
+                    if status:
+                        logger.warning(f"Audio status: {status}")
+                    if rec.AcceptWaveform(indata.tobytes()):
+                        result = json.loads(rec.Result())
+                        if 'text' in result and result['text']:
+                            text = result['text'].lower()
+                            logger.info(f"Heard: {text}")
+                            if "puff" in text:
+                                response = process_voice_command(text)
+                                logger.info(f"Response: {response['response']}")
+                                speak_response(response['response'])
+                                broadcast_response(response['response'])
+                
+                # Start audio stream
+                logger.info("Starting audio stream...")
+                with sd.InputStream(device=device, channels=1, samplerate=samplerate,
+                                 blocksize=blocksize, callback=audio_callback,
+                                 dtype=np.int16):
+                    broadcast_listening_status('listening')
+                    while True:
+                        sd.sleep(1000)  # Sleep for 1 second
+                        
+            except Exception as e:
+                logger.error(f"Error in audio stream: {str(e)}")
+                broadcast_listening_status('idle')
+                time.sleep(2)
                 continue
                 
-            logger.info(f"Using microphone with index: {device_index}")
-            
-            with sr.Microphone(device_index=device_index) as source:
-                # Initial ambient noise adjustment with longer duration
-                logger.info("Performing initial ambient noise calibration...")
-                recognizer.adjust_for_ambient_noise(source, duration=2)
-                
-                while True:  # Main listening loop
-                    try:
-                        logger.info("Listening for commands...")
-                        broadcast_listening_status('listening')
-                        
-                        # Dynamic noise adjustment every few minutes
-                        if time.time() % 300 < 1:  # Every 5 minutes
-                            logger.info("Readjusting for ambient noise...")
-                            recognizer.adjust_for_ambient_noise(source, duration=1)
-
-                        try:
-                            # Listen with a timeout to allow for periodic checks
-                            audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
-                            broadcast_listening_status('processing')
-                            
-                            try:
-                                text = recognizer.recognize_google(audio).lower()
-                                logger.info(f"Heard: {text}")
-                                
-                                if "puff" in text:
-                                    response = process_voice_command(text)
-                                    logger.info(f"Response: {response['response']}")
-                                    speak_response(response['response'])
-                                    broadcast_response(response['response'])
-                                
-                            except sr.UnknownValueError:
-                                pass  # Speech was unclear
-                            except sr.RequestError as e:
-                                logger.error(f"Speech recognition service error: {str(e)}")
-                                time.sleep(1)
-                                
-                        except sr.WaitTimeoutError:
-                            pass  # Timeout is normal, just continue listening
-                            
-                        broadcast_listening_status('idle')
-                        
-                    except Exception as e:
-                        logger.error(f"Error in main listening loop: {str(e)}")
-                        broadcast_listening_status('idle')
-                        time.sleep(1)
-                        break  # Break inner loop to reinitialize microphone
-                        
-        except Exception as e:
-            logger.error(f"Error in voice listener setup: {str(e)}")
-            time.sleep(2)  # Short pause before retrying microphone setup
+    except Exception as e:
+        logger.error(f"Error in voice listener setup: {str(e)}")
+        time.sleep(2)
 
 def process_voice_command(query):
     """Process a voice command and return a response."""
