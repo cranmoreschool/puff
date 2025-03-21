@@ -31,6 +31,6 @@ python main.py
 
 ## Credits:
 - **Ismael P** for Project Managing and Development
-- **Seb S** for Project Research and making our name
+- **Seb S** for Head Researcher and making our name
 - **Monty** for Product Design
 - **Conor** for Product Research
