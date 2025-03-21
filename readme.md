@@ -1,5 +1,8 @@
 [![New-Project.png](https://i.postimg.cc/x1P7G56K/New-Project.png)](https://postimg.cc/5X6nbBd0)
 
+
+# Puff
+
 We have an Air Quality Sensor that measures the particulate matter (PM for short) in the air. It can spike when doing things such as
 * smoking
 * burning
@@ -27,14 +30,14 @@ quicker than a GPT. Some of our phrases are "current air quality" and "how's the
 Puff shows an blue light (like Alexa).
 
 Our setup is very streamlined, needing only three commands to setup the air sensor. First, cd (change directory) into the folder after installation. We did:
-`cd puff`
+```cd puff```
 After this, run your installer using the bash command
-`bash.installer.sh`
+```bash.installer.sh```
 Finally, run your Python code
-`python main.py`
+```python main.py```
 
 
-Credits:
+## Credits:
 - Ismael P for Project Managing and Development
 - Seb S for Project Research and making our name
 - Monty for Product Design
