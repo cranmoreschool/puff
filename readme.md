@@ -1,4 +1,4 @@
-![Puff: Breathe Easy, Live Healthy](https://postimg.cc/5X6nbBd0)
+[![New-Project.png](https://i.postimg.cc/x1P7G56K/New-Project.png)](https://postimg.cc/5X6nbBd0)
 
 We have an Air Quality Sensor that measures the particulate matter (PM for short) in the air. It can spike when doing things such as
 * smoking
