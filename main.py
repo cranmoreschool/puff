@@ -44,9 +44,12 @@ def ws_handler(ws):
     except:
         ws_clients.remove(ws)
 
-def broadcast_listening_status(status):
-    """Broadcast listening status to all connected clients."""
-    message = json.dumps({'status': status})
+def broadcast_to_clients(message_type, data):
+    """Broadcast messages to all connected clients."""
+    message = json.dumps({
+        'type': message_type,
+        'data': data
+    })
     dead_clients = set()
     
     for client in ws_clients:
@@ -59,19 +62,69 @@ def broadcast_listening_status(status):
     for client in dead_clients:
         ws_clients.remove(client)
 
+def broadcast_listening_status(status):
+    """Broadcast listening status to all connected clients."""
+    broadcast_to_clients('status', {'status': status})
+
+def broadcast_response(response_text):
+    """Broadcast response text to all connected clients."""
+    broadcast_to_clients('response', {'text': response_text})
+
 # HTML Templates as Multi-line Strings
 index_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- Response Overlay HTML -->
+    <template id="overlayTemplate">
+        <div id="responseOverlay">
+            <div id="responseText"></div>
+        </div>
+    </template>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Air Quality Monitor</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
+        #responseOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #responseOverlay.active {
+            display: flex;
+            opacity: 1;
+        }
+        #responseText {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 2rem;
+            border-radius: 1rem;
+            max-width: 80%;
+            text-align: center;
+            font-size: 1.5rem;
+            color: #1F2937;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            transform: translateY(20px);
+            transition: transform 0.3s ease-out;
+        }
+        #responseOverlay.active #responseText {
+            transform: translateY(0);
+        }
         .glass {
             background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(10px);
@@ -163,6 +216,16 @@ index_html = """
         }
     </style>
     <script>
+        // Initialize response overlay
+        document.body.insertAdjacentHTML('afterbegin', `
+            <div id="responseOverlay" class="fixed inset-0 hidden z-[9999]">
+                <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+                <div class="relative w-full h-full flex items-center justify-center">
+                    <div id="responseText" class="bg-white/90 p-8 rounded-xl max-w-2xl mx-4 text-2xl text-gray-800 font-medium shadow-lg transform transition-all"></div>
+                </div>
+            </div>
+        `);
+
         // Fullscreen toggle function
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
@@ -180,15 +243,28 @@ index_html = """
         
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
+            const overlay = document.getElementById('responseOverlay');
             
-            if (data.status === 'listening') {
-                indicator.classList.add('active');
-                indicator.style.background = '#3B82F6';  // Blue
-            } else if (data.status === 'processing') {
-                indicator.classList.add('active');
-                indicator.style.background = '#10B981';  // Green
-            } else {
-                indicator.classList.remove('active');
+            if (data.type === 'status') {
+                if (data.data.status === 'listening') {
+                    indicator.classList.add('active');
+                    indicator.style.background = '#3B82F6';  // Blue
+                } else if (data.data.status === 'processing') {
+                    indicator.classList.add('active');
+                    indicator.style.background = '#10B981';  // Green
+                } else {
+                    indicator.classList.remove('active');
+                }
+            } else if (data.type === 'response') {
+                // Show response overlay
+                const responseText = document.getElementById('responseText');
+                responseText.textContent = data.data.text;
+                overlay.classList.add('active');
+                
+                // Hide after 5 seconds
+                setTimeout(() => {
+                    overlay.classList.remove('active');
+                }, 5000);
             }
         };
 
@@ -243,6 +319,21 @@ index_html = """
         updateReadings();
         setInterval(updateReadings, 5000);
 
+        // Show response overlay
+        function showResponse(text, duration = 5000) {
+            const overlay = document.getElementById('responseOverlay');
+            const responseText = document.getElementById('responseText');
+            
+            responseText.textContent = text;
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }, duration);
+        }
+
         // Voice assistant activation
         function activatePuff() {
             fetch('/api/puff', {
@@ -256,7 +347,7 @@ index_html = """
             })
             .then(response => response.json())
             .then(data => {
-                alert(data.response);
+                showResponse(data.response);
             })
             .catch(error => console.error('Error:', error));
         }
@@ -600,7 +691,7 @@ onboarding_html = """
                         </div>
                         <div class="glass rounded-xl p-4">
                             <h3 class="font-medium text-gray-800 mb-2">Numerical Readings</h3>
-                            <p class="text-gray-600">Display exact PM2.5 and PM10 values in Î¼g/mÂ³</p>
+                            <p class="text-gray-600">Display exact PM2.5 and PM10 values in μg/m³</p>
                         </div>
                     </div>
                     <div class="flex space-x-4">
@@ -1018,6 +1109,7 @@ def voice_listener_loop():
                         response = process_voice_command(text)
                         logger.info(f"Response: {response['response']}")
                         speak_response(response['response'])
+                        broadcast_response(response['response'])
                         
                 except sr.UnknownValueError:
                     pass  # Speech was unclear
