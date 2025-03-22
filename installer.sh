@@ -14,21 +14,22 @@ if ! command -v pip &> /dev/null; then
     exit 1
 fi
 
-# Install system dependencies for audio
+# Install system dependencies for audio and speech recognition
 echo "Installing system dependencies..."
 if command -v apt-get &> /dev/null; then
     # Debian/Ubuntu
     sudo apt-get update
-    sudo apt-get install -y python3-pyaudio mpg123 portaudio19-dev libasound2-dev alsa-utils
+    sudo apt-get install -y python3-pyaudio mpg123 portaudio19-dev libasound2-dev alsa-utils \
+                           swig libpulse-dev
 elif command -v yum &> /dev/null; then
     # CentOS/RHEL
-    sudo yum install -y python3-pyaudio mpg123 portaudio-devel
+    sudo yum install -y python3-pyaudio mpg123 portaudio-devel swig pulseaudio-libs-devel
 elif command -v pacman &> /dev/null; then
     # Arch Linux
-    sudo pacman -S --noconfirm python-pyaudio mpg123 portaudio
+    sudo pacman -S --noconfirm python-pyaudio mpg123 portaudio swig pulseaudio
 elif command -v brew &> /dev/null; then
     # macOS
-    brew install portaudio mpg123
+    brew install portaudio mpg123 swig pulseaudio
 else
     echo "Warning: Could not install system dependencies automatically."
     echo "Please install PyAudio and mpg123 manually for your system."
