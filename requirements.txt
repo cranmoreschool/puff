@@ -1,8 +1,10 @@
 Flask>=2.0.0
 pyserial>=3.5
-sounddevice>=0.4.5
 vosk>=0.3.42
-gTTS>=2.2.3
-mpg123>=0.4
+pyttsx3>=2.90
 flask-sock>=0.6.0
 numpy>=1.21.0
+SpeechRecognition>=3.8.1
+gTTS>=2.2.3
+pocketsphinx>=0.1.15
+PyAudio>=0.2.11
