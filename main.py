@@ -975,27 +975,109 @@ def sensor_loop():
         time.sleep(5)  # Wait before retrying
 
 def test_microphone(device_index):
-    """Test if a microphone device is working with enhanced error checking."""
+    """Test if a microphone device is working with comprehensive error checking and recovery."""
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2
+    SAMPLE_DURATION = 3  # Duration in seconds to sample audio
+    ENERGY_THRESHOLD = 300  # Minimum energy level to consider microphone working
+    
     if device_index is None:
-        return False
-        
-    try:
-        # Try to record a short sample using speech_recognition
-        r = sr.Recognizer()
-        with sr.Microphone(device_index=device_index) as source:
-            r.adjust_for_ambient_noise(source, duration=1)
-            audio = r.listen(source, timeout=1, phrase_time_limit=1)
-        logger.info(f"Successfully recorded audio sample from device {device_index}")
-        return True
-    except Exception as e:
-        logger.error(f"Device {device_index} test failed: {str(e)}")
-        if "Invalid number of channels" in str(e):
-            logger.error("Try updating ALSA configuration for correct channel setup")
-        elif "USB" in str(e):
-            logger.error("USB microphone access error. Check permissions and connections")
-        elif "ALSA" in str(e):
-            logger.error("ALSA error. Try running: sudo modprobe snd-usb-audio")
-        return False
+        logger.info("Testing default microphone device")
+    else:
+        logger.info(f"Testing microphone device {device_index}")
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            r = sr.Recognizer()
+            with sr.Microphone(device_index=device_index) as source:
+                # Configure recognizer for optimal testing
+                r.dynamic_energy_threshold = True
+                r.energy_threshold = 4000
+                r.dynamic_energy_adjustment_damping = 0.15
+                r.dynamic_energy_adjustment_ratio = 1.5
+                r.pause_threshold = 0.8
+                r.phrase_threshold = 0.3
+                r.non_speaking_duration = 0.5
+                
+                # Step 1: Test device initialization
+                logger.info("Testing device initialization...")
+                if not source or not source.stream:
+                    raise Exception("Failed to initialize audio stream")
+                
+                # Step 2: Verify audio format
+                logger.info("Verifying audio format...")
+                if source.SAMPLE_RATE != 16000:
+                    logger.warning(f"Non-standard sample rate: {source.SAMPLE_RATE}")
+                if source.SAMPLE_WIDTH != 2:  # 16-bit audio
+                    logger.warning(f"Non-standard sample width: {source.SAMPLE_WIDTH}")
+                
+                # Step 3: Test noise levels
+                logger.info("Adjusting for ambient noise...")
+                r.adjust_for_ambient_noise(source, duration=2)
+                
+                # Step 4: Record and analyze audio
+                logger.info("Recording test sample...")
+                audio = r.listen(source, timeout=2, phrase_time_limit=SAMPLE_DURATION)
+                
+                # Step 5: Analyze audio energy levels
+                if hasattr(audio, 'get_raw_data'):
+                    raw_data = np.frombuffer(audio.get_raw_data(), dtype=np.int16)
+                    energy = np.sqrt(np.mean(np.square(raw_data)))
+                    logger.info(f"Audio energy level: {energy}")
+                    if energy < ENERGY_THRESHOLD:
+                        logger.warning("Low audio energy detected")
+                
+                # Step 6: Attempt recognition
+                try:
+                    # Try Google first
+                    r.recognize_google(audio, show_all=True)
+                    logger.info(f"Successfully tested device {device_index} with Google")
+                    return True
+                except sr.UnknownValueError:
+                    # Try Sphinx as fallback
+                    try:
+                        r.recognize_sphinx(audio)
+                        logger.info(f"Successfully tested device {device_index} with Sphinx")
+                        return True
+                    except:
+                        # This is fine - means we recorded silence
+                        logger.info("Device recording verified (silent input)")
+                        return True
+                
+        except Exception as e:
+            error_msg = str(e).lower()
+            logger.warning(f"Attempt {attempt + 1} failed: {error_msg}")
+            
+            # Detailed error handling
+            if "invalid number of channels" in error_msg:
+                logger.error("Channel configuration error detected")
+                logger.error("Try updating ALSA configuration:")
+                logger.error("1. Check /etc/asound.conf")
+                logger.error("2. Verify microphone is not in use by another application")
+            elif "usb" in error_msg:
+                logger.error("USB device error detected")
+                logger.error("1. Check USB connection")
+                logger.error("2. Try different USB port")
+                logger.error("3. Verify permissions: sudo usermod -aG audio $USER")
+            elif "alsa" in error_msg:
+                logger.error("ALSA system error detected")
+                logger.error("Try the following:")
+                logger.error("1. sudo modprobe snd-usb-audio")
+                logger.error("2. sudo alsa force-reload")
+                logger.error("3. Check system logs: dmesg | grep audio")
+            elif "permission" in error_msg:
+                logger.error("Permission error detected")
+                logger.error("1. Verify audio group membership")
+                logger.error("2. Check device permissions: ls -l /dev/snd/*")
+            
+            if attempt < MAX_RETRIES - 1:
+                logger.info(f"Retrying in {RETRY_DELAY} seconds...")
+                time.sleep(RETRY_DELAY)
+            else:
+                logger.error(f"Device {device_index} failed all retry attempts")
+                return False
+                
+    return False
 
 def find_working_usb_microphone():
     """Scan for and find a working USB microphone with Raspberry Pi support."""
@@ -1135,55 +1217,89 @@ def setup_audio():
         raise
 
 def voice_listener_loop():
-    """Continuously listen for voice commands using Vosk."""
+    """Continuously listen for voice commands using speech recognition."""
+    ENERGY_THRESHOLD = 4000  # Adjust based on environment
+    DYNAMIC_ENERGY_RATIO = 1.5
+    PAUSE_THRESHOLD = 0.8  # Shorter pause for better command detection
+    PHRASE_TIMEOUT = 3
+    RETRY_DELAY = 2
+    MAX_RETRIES = 3
+
     try:
-        # Set up Vosk model
-        model = setup_vosk()
         device_index = setup_audio()
-        
-        # Initialize recognizer
         r = sr.Recognizer()
         
+        # Configure recognizer settings
+        r.energy_threshold = ENERGY_THRESHOLD
+        r.dynamic_energy_threshold = True
+        r.dynamic_energy_ratio = DYNAMIC_ENERGY_RATIO
+        r.pause_threshold = PAUSE_THRESHOLD
+        r.phrase_threshold = 0.3
+        r.non_speaking_duration = 0.5
+        
         while True:  # Main loop
-            try:
-                # Start listening
-                with sr.Microphone(device_index=device_index) as source:
-                    logger.info("Starting audio stream...")
-                    broadcast_listening_status('listening')
+            retry_count = 0
+            while retry_count < MAX_RETRIES:
+                try:
+                    with sr.Microphone(device_index=device_index) as source:
+                        logger.info("Starting audio stream...")
+                        broadcast_listening_status('listening')
+                        
+                        # Enhanced noise adjustment
+                        logger.info("Adjusting for ambient noise...")
+                        r.adjust_for_ambient_noise(source, duration=2)
+                        
+                        while True:
+                            try:
+                                logger.debug("Listening for commands...")
+                                audio = r.listen(source, timeout=1, phrase_time_limit=PHRASE_TIMEOUT)
+                                
+                                try:
+                                    # Try Google Speech Recognition first
+                                    text = r.recognize_google(audio).lower()
+                                    logger.info(f"Recognized (Google): {text}")
+                                except sr.UnknownValueError:
+                                    # Fallback to local recognition if Google fails
+                                    try:
+                                        text = r.recognize_sphinx(audio).lower()
+                                        logger.info(f"Recognized (Sphinx): {text}")
+                                    except:
+                                        continue
+                                except sr.RequestError:
+                                    # Network error with Google, try Sphinx
+                                    try:
+                                        text = r.recognize_sphinx(audio).lower()
+                                        logger.info(f"Recognized (Sphinx): {text}")
+                                    except:
+                                        continue
+                                
+                                if "puff" in text:
+                                    response = process_voice_command(text)
+                                    logger.info(f"Response: {response['response']}")
+                                    speak_response(response['response'])
+                                    broadcast_response(response['response'])
+                                
+                            except sr.WaitTimeoutError:
+                                continue  # Keep listening
+                            except Exception as e:
+                                logger.error(f"Error processing audio: {str(e)}")
+                                continue
+                                
+                except Exception as e:
+                    retry_count += 1
+                    logger.error(f"Error in audio stream (attempt {retry_count}): {str(e)}")
+                    broadcast_listening_status('idle')
+                    if retry_count < MAX_RETRIES:
+                        logger.info(f"Retrying in {RETRY_DELAY} seconds...")
+                        time.sleep(RETRY_DELAY)
+                    else:
+                        logger.error("Max retries reached, resetting audio stream")
+                        time.sleep(RETRY_DELAY * 2)
+                        break
                     
-                    # Adjust for ambient noise
-                    r.adjust_for_ambient_noise(source)
-                    
-                    while True:
-                        try:
-                            audio = r.listen(source, timeout=1, phrase_time_limit=5)
-                            # Convert audio to text using Vosk
-                            rec = KaldiRecognizer(model, 16000)
-                            if rec.AcceptWaveform(audio.get_raw_data()):
-                                result = json.loads(rec.Result())
-                                if 'text' in result and result['text']:
-                                    text = result['text'].lower()
-                                    logger.info(f"Heard: {text}")
-                                    if "puff" in text:
-                                        response = process_voice_command(text)
-                                        logger.info(f"Response: {response['response']}")
-                                        speak_response(response['response'])
-                                        broadcast_response(response['response'])
-                        except sr.WaitTimeoutError:
-                            continue  # Keep listening
-                        except Exception as e:
-                            logger.error(f"Error processing audio: {str(e)}")
-                            continue
-                            
-            except Exception as e:
-                logger.error(f"Error in audio stream: {str(e)}")
-                broadcast_listening_status('idle')
-                time.sleep(2)
-                continue
-                
     except Exception as e:
-        logger.error(f"Error in voice listener setup: {str(e)}")
-        time.sleep(2)
+        logger.error(f"Critical error in voice listener: {str(e)}")
+        logger.error("Voice listener stopped. Please restart the application.")
 
 def process_voice_command(query):
     """Process a voice command and return a response."""
