@@ -3,45 +3,6 @@
 Air Quality Monitor with SDS011 Sensor and Chatbot
 All-in-one file with embedded installer and HTML templates
 """
-
-def install_requirements():
-    """Install required packages."""
-    import subprocess
-    import sys
-    
-    required_packages = [
-        'flask==2.3.3',
-        'pyserial==3.5',
-        'werkzeug==2.3.7',
-        'transformers==4.30.2',
-        'torch==2.0.1',
-        'numpy==1.24.3'
-    ]
-    
-    print("Installing required packages...")
-    for package in required_packages:
-        try:
-            subprocess.check_call([
-                sys.executable, 
-                '-m', 
-                'pip', 
-                'install', 
-                '--no-cache-dir',
-                package
-            ])
-        except subprocess.CalledProcessError as e:
-            print(f"Error installing {package}: {str(e)}")
-            sys.exit(1)
-    print("All packages installed successfully!")
-
-# Run installer
-if __name__ == '__main__':
-    try:
-        from flask import Flask, jsonify, request
-        from transformers import pipeline
-    except ImportError:
-        install_requirements()
-
 # Import required packages
 import os
 import json
